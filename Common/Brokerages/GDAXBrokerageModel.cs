@@ -20,6 +20,8 @@ using QuantConnect.Securities;
 using QuantConnect.Orders.Fills;
 using QuantConnect.Orders.Fees;
 using System.Linq;
+using QuantConnect.Benchmarks;
+using static QuantConnect.StringExtensions;
 
 namespace QuantConnect.Brokerages
 {
@@ -28,7 +30,7 @@ namespace QuantConnect.Brokerages
     /// </summary>
     public class GDAXBrokerageModel : DefaultBrokerageModel
     {
-        private static BrokerageMessageEvent _message = new BrokerageMessageEvent(BrokerageMessageType.Warning, 0, "Brokerage does not support update. You must cancel and re-create instead.");
+        private readonly BrokerageMessageEvent _message = new BrokerageMessageEvent(BrokerageMessageType.Warning, 0, "Brokerage does not support update. You must cancel and re-create instead.");
 
         // https://support.gdax.com/customer/portal/articles/2725970-trading-rules
         private static readonly Dictionary<string, decimal> MinimumOrderSizes = new Dictionary<string, decimal>
@@ -49,8 +51,31 @@ namespace QuantConnect.Brokerages
             { "LTCUSD", 0.1m },
             { "LTCEUR", 0.1m },
             { "LTCGBP", 0.1m },
-            { "LTCBTC", 0.1m }
+            { "LTCBTC", 0.1m },
+
+            { "XRPUSD", 1m },
+            { "XRPEUR", 1m },
+            { "XRPBTC", 1m },
+
+            { "EOSUSD", 0.1m },
+            { "EOSEUR", 0.1m },
+            { "EOSBTC", 0.1m },
+
+            { "XLMUSD", 1m },
+            { "XLMEUR", 1m },
+            { "XLMBTC", 1m },
+
+            { "ETCUSD", 0.1m },
+            { "ETCEUR", 0.1m },
+            { "ETCBTC", 0.1m },
+
+            { "ZRXUSD", 1m },
+            { "ZRXEUR", 1m },
+            { "ZRXBTC", 1m }
         };
+
+        // https://blog.coinbase.com/coinbase-pro-market-structure-update-fbd9d49f43d7
+        private readonly DateTime _stopMarketOrderSupportEndDate = new DateTime(2019, 3, 23, 1, 0, 0);
 
         /// <summary>
         /// Initializes a new instance of the <see cref="GDAXBrokerageModel"/> class
@@ -62,7 +87,7 @@ namespace QuantConnect.Brokerages
         {
             if (accountType == AccountType.Margin)
             {
-                throw new Exception("The GDAX brokerage does not currently support Margin trading.");
+                throw new ArgumentException("The GDAX brokerage does not currently support Margin trading.", nameof(accountType));
             }
         }
 
@@ -75,6 +100,17 @@ namespace QuantConnect.Brokerages
         {
             // margin trading is not currently supported by GDAX
             return 1m;
+        }
+
+        /// <summary>
+        /// Get the benchmark for this model
+        /// </summary>
+        /// <param name="securities">SecurityService to create the security with if needed</param>
+        /// <returns>The benchmark for this brokerage</returns>
+        public override IBenchmark GetBenchmark(SecurityManager securities)
+        {
+            var symbol = Symbol.Create("BTCUSD", SecurityType.Crypto, Market.GDAX);
+            return SecurityBenchmark.CreateInstance(securities, symbol);
         }
 
         /// <summary>
@@ -121,7 +157,7 @@ namespace QuantConnect.Brokerages
                 Math.Abs(order.Quantity) < minimumOrderSize)
             {
                 message = new BrokerageMessageEvent(BrokerageMessageType.Warning, "NotSupported",
-                    $"The minimum order quantity for {security.Symbol.Value} is {minimumOrderSize}"
+                    Invariant($"The minimum order quantity for {security.Symbol.Value} is {minimumOrderSize}")
                 );
 
                 return false;
@@ -130,16 +166,25 @@ namespace QuantConnect.Brokerages
             if (security.Type != SecurityType.Crypto)
             {
                 message = new BrokerageMessageEvent(BrokerageMessageType.Warning, "NotSupported",
-                    $"The {nameof(GDAXBrokerageModel)} does not support {security.Type} security type."
+                    Invariant($"The {nameof(GDAXBrokerageModel)} does not support {security.Type} security type.")
                 );
 
                 return false;
             }
 
-            if (order.Type != OrderType.Limit && order.Type != OrderType.Market && order.Type != OrderType.StopMarket)
+            if (order.Type != OrderType.Limit && order.Type != OrderType.Market && order.Type != OrderType.StopMarket && order.Type != OrderType.StopLimit)
             {
                 message = new BrokerageMessageEvent(BrokerageMessageType.Warning, "NotSupported",
-                    $"The {nameof(GDAXBrokerageModel)} does not support {order.Type} order type."
+                    Invariant($"The {nameof(GDAXBrokerageModel)} does not support {order.Type} order type.")
+                );
+
+                return false;
+            }
+
+            if (order.Type == OrderType.StopMarket && order.Time >= _stopMarketOrderSupportEndDate)
+            {
+                message = new BrokerageMessageEvent(BrokerageMessageType.Warning, "NotSupported",
+                    Invariant($"Stop Market orders are no longer supported since {_stopMarketOrderSupportEndDate}.")
                 );
 
                 return false;
@@ -148,7 +193,7 @@ namespace QuantConnect.Brokerages
             if (order.TimeInForce != TimeInForce.GoodTilCanceled)
             {
                 message = new BrokerageMessageEvent(BrokerageMessageType.Warning, "NotSupported",
-                    $"The {nameof(GDAXBrokerageModel)} does not support {order.TimeInForce.GetType().Name} time in force."
+                    Invariant($"The {nameof(GDAXBrokerageModel)} does not support {order.TimeInForce.GetType().Name} time in force.")
                 );
 
                 return false;
